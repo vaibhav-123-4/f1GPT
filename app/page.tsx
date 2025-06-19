@@ -72,7 +72,10 @@ const Home = () => {
 
   return (
     <main>
-      <Image src={f1GPT} width={250} alt="F1GPT" />
+      <div className="logo-container">
+        <Image src={f1GPT} width={250} alt="F1GPT" />
+        <p className="subtitle">Your complete guide to Formula 1</p>
+      </div>
       <section className={messages.length === 0 ? "" : "populated"}>
         {messages.length === 0 ? (
           <>
