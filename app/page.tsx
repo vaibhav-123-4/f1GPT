@@ -10,63 +10,60 @@ const Home = () => {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<{ role: string; content: string }[]>([]);
   const [streaming, setStreaming] = useState(false);
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  if (!input.trim()) return;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const newMessages = [...messages, { role: "user", content: input }];
+  setMessages(newMessages);
+  setInput("");
+  setStreaming(true);
 
-    const newMessages = [...messages, { role: "user", content: input }];
-    setMessages(newMessages);
-    setInput("");
-    setStreaming(true);
+  try {
+    const res = await fetch("/api/proxy-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: newMessages }),
+    });
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to fetch response");
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error("No response body");
-      }
-
-      const decoder = new TextDecoder("utf-8");
-      let assistantMessage = "";
-      setMessages([...newMessages, { role: "assistant", content: "" }]);
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        assistantMessage += chunk;
-
-        // Update the assistant message incrementally
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
-            role: "assistant",
-            content: assistantMessage,
-          };
-          return updated;
-        });
-      }
-    } catch (err) {
-      console.error("Chat error:", err);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "An error occurred." },
-      ]);
-    } finally {
-      setStreaming(false);
+    if (!res.ok) {
+      throw new Error("Failed to fetch response");
     }
-  };
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response body");
+
+    const decoder = new TextDecoder("utf-8");
+    let assistantMessage = "";
+    setMessages([...newMessages, { role: "assistant", content: "" }]);
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      assistantMessage += chunk;
+
+      setMessages((prev) => {
+        const updated = [...prev];
+        updated[updated.length - 1] = {
+          role: "assistant",
+          content: assistantMessage,
+        };
+        return updated;
+      });
+    }
+  } catch (err) {
+    console.error("Chat error:", err);
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: "An error occurred." },
+    ]);
+  } finally {
+    setStreaming(false);
+  }
+};
+
 
   const onPromptClick = (promptText: string) => setInput(promptText);
 
