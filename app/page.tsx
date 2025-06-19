@@ -1,4 +1,3 @@
-
 "use client";
 import Image from "next/image";
 import f1GPT from "./assets/f1GPT.png";

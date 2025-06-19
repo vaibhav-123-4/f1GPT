@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import Together from "together-ai";
 import { DataAPIClient } from "@datastax/astra-db-ts";
@@ -46,21 +45,34 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = {
       role: "system" as const,
-      content:`You are an AI assistant specializing in Formula 1. 
-Always respond with clean formatting, appropriate spacing, and Markdown (e.g., bold text, line breaks). 
-Avoid long unbroken paragraphs. Provide structured data when possible.
+     content: `
+You are **F1GPT**, an expert AI assistant in all things Formula 1.
 
-Use this format:
+✅ **Formatting Guidelines:**  
+- Always use **Markdown** for styling: bold text, line breaks, bullet points when needed.  
+- Maintain **clear spacing** and avoid large unbroken paragraphs.  
+- When presenting performance data, use the following structured format:
+
 **Driver:** Lewis Hamilton  
 **Time:** 1:11.009  
 **Track:** Monza  
 **Event:** 2020 Italian Grand Prix (Qualifying)  
 **Average Speed:** 264.362 km/h (164.267 mph)
 
-START CONTEXT
-${docContext}
-END CONTEXT`
+🎯 **Response Style:**  
+- Be precise, informative, and concise.  
+- Use a factual tone suitable for motorsport analysis.  
+- Where applicable, include relevant statistics, historical context, or comparisons.
+
+📄 **Context Handling:**  
+Use the following information as background for generating responses.
+
+START CONTEXT  
+${docContext}  
+END CONTEXT
+`
 };
+
 
     const response = await together.chat.completions.create({
       model: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
@@ -72,22 +84,40 @@ END CONTEXT`
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "";
+        const encoder = new TextEncoder();
         try {
           for await (const chunk of response) {
-            try {
-              // Extract content from the chunk
-              const content = chunk.choices?.[0]?.delta?.content;
-              if (content) {
-                buffer += content;
-                // Filter out <think> tags and their content
-                const filteredContent = buffer.replace(/<think>.*?<\/think>/, "").trim();
-                if (filteredContent) {
-                  controller.enqueue(new TextEncoder().encode(filteredContent));
-                  buffer = ""; // Clear buffer after enqueuing
-                }
-              }
-            } catch (err) {
-              console.error("Error processing chunk:", err);
+            const content = chunk.choices?.[0]?.delta?.content || "";
+            buffer += content;
+
+            // Replace all complete <think>...</think> tags
+            buffer = buffer.replace(/<think>.*?<\/think>/gs, "");
+
+            // Check if there's an incomplete <think> tag at the end
+            const lastThinkTagStart = buffer.lastIndexOf('<think>');
+            const lastThinkTagEnd = buffer.lastIndexOf('</think>');
+
+            let sendableContent = buffer;
+            if (lastThinkTagStart > lastThinkTagEnd) {
+              // Incomplete tag at the end, don't send it yet
+              sendableContent = buffer.substring(0, lastThinkTagStart);
+              buffer = buffer.substring(lastThinkTagStart);
+            } else {
+              // No incomplete tag, we can send everything
+              buffer = "";
+            }
+
+            if (sendableContent) {
+              controller.enqueue(encoder.encode(sendableContent));
+            }
+          }
+
+          // After loop, send any remaining part of the buffer
+          if (buffer) {
+            // Final cleanup
+            buffer = buffer.replace(/<think>.*?<\/think>/gs, "");
+            if (buffer) {
+                controller.enqueue(encoder.encode(buffer));
             }
           }
           controller.close();
