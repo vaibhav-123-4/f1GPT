@@ -7,7 +7,8 @@ const {
   ASTRA_DB_COLLECTION,
   ASTRA_DB_API_ENDPOINT,
   ASTRA_DB_APPLICATION_TOKEN,
-  TOGETHERAI_API_KEY
+  TOGETHERAI_API_KEY,
+  CHATBOT_SECRET_KEY, // ✅ Secret key from environment
 } = process.env;
 
 const together = new Together({ apiKey: TOGETHERAI_API_KEY });
@@ -15,11 +16,20 @@ const client = new DataAPIClient(ASTRA_DB_APPLICATION_TOKEN!);
 const db = client.db(ASTRA_DB_API_ENDPOINT!, { namespace: ASTRA_DB_NAMESPACE! });
 
 export async function POST(req: NextRequest) {
+  // ✅ Step 1: Authorization header check
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader || authHeader !== `Bearer ${CHATBOT_SECRET_KEY}`) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const { messages } = await req.json();
     const latestMessage = messages?.[messages.length - 1]?.content || "";
 
-    // Fetch context from Astra DB
+    // ✅ Step 2: Fetch context from Astra DB
     let docContext = "";
     try {
       const embedding = await together.embeddings.create({
@@ -43,15 +53,23 @@ export async function POST(req: NextRequest) {
       docContext = "No relevant documents found.";
     }
 
+    // ✅ Step 3: System Prompt
     const systemPrompt = {
       role: "system" as const,
-     content: `
-You are **F1GPT**, an expert AI assistant in all things Formula 1.
+      content: `
+You are **F1GPT**, an AI assistant specializing exclusively in Formula 1.
+
+🛑 **Important Rules:**  
+- You must **refuse to answer** any question that is **not related to Formula 1**.  
+- If a question is outside the Formula 1 domain (e.g., general science, history, tech), politely respond with:  
+  **"I'm designed to answer only Formula 1–related questions. Please ask something about F1."**
 
 ✅ **Formatting Guidelines:**  
-- Always use **Markdown** for styling: bold text, line breaks, bullet points when needed.  
-- Maintain **clear spacing** and avoid large unbroken paragraphs.  
-- When presenting performance data, use the following structured format:
+- Use **Markdown**: bold text, line breaks, and bullet points when needed.  
+- Keep spacing clean and avoid long unbroken paragraphs.
+
+📊 **Performance Data Format:**  
+Use this template when sharing race data:
 
 **Driver:** Lewis Hamilton  
 **Time:** 1:11.009  
@@ -60,9 +78,9 @@ You are **F1GPT**, an expert AI assistant in all things Formula 1.
 **Average Speed:** 264.362 km/h (164.267 mph)
 
 🎯 **Response Style:**  
-- Be precise, informative, and concise.  
-- Use a factual tone suitable for motorsport analysis.  
-- Where applicable, include relevant statistics, historical context, or comparisons.
+- Be factual, clear, and concise.  
+- Use racing terminology when applicable.  
+- Provide historical context or comparisons when useful.
 
 📄 **Context Handling:**  
 Use the following information as background for generating responses.
@@ -70,17 +88,17 @@ Use the following information as background for generating responses.
 START CONTEXT  
 ${docContext}  
 END CONTEXT
-`
-};
+`,
+    };
 
-
+    // ✅ Step 4: Create Together AI response stream
     const response = await together.chat.completions.create({
       model: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
       messages: [systemPrompt, { role: "user", content: latestMessage }],
       stream: true,
     });
 
-    // Create a ReadableStream to handle the async iterator
+    // ✅ Step 5: Stream the response
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "";
@@ -90,36 +108,30 @@ END CONTEXT
             const content = chunk.choices?.[0]?.delta?.content || "";
             buffer += content;
 
-            // Replace all complete <think>...</think> tags
+            // Remove complete <think>...</think> tags
             buffer = buffer.replace(/<think>.*?<\/think>/gs, "");
 
-            // Check if there's an incomplete <think> tag at the end
-            const lastThinkTagStart = buffer.lastIndexOf('<think>');
-            const lastThinkTagEnd = buffer.lastIndexOf('</think>');
+            // Handle partial <think> tag
+            const lastThinkStart = buffer.lastIndexOf("<think>");
+            const lastThinkEnd = buffer.lastIndexOf("</think>");
 
-            let sendableContent = buffer;
-            if (lastThinkTagStart > lastThinkTagEnd) {
-              // Incomplete tag at the end, don't send it yet
-              sendableContent = buffer.substring(0, lastThinkTagStart);
-              buffer = buffer.substring(lastThinkTagStart);
+            let sendable = buffer;
+            if (lastThinkStart > lastThinkEnd) {
+              sendable = buffer.substring(0, lastThinkStart);
+              buffer = buffer.substring(lastThinkStart);
             } else {
-              // No incomplete tag, we can send everything
               buffer = "";
             }
 
-            if (sendableContent) {
-              controller.enqueue(encoder.encode(sendableContent));
-            }
+            if (sendable) controller.enqueue(encoder.encode(sendable));
           }
 
-          // After loop, send any remaining part of the buffer
+          // Send any leftover content
           if (buffer) {
-            // Final cleanup
             buffer = buffer.replace(/<think>.*?<\/think>/gs, "");
-            if (buffer) {
-                controller.enqueue(encoder.encode(buffer));
-            }
+            if (buffer) controller.enqueue(encoder.encode(buffer));
           }
+
           controller.close();
         } catch (err) {
           console.error("Stream error:", err);

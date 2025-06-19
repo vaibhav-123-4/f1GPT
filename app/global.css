@@ -1,15 +1,22 @@
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(135deg, #232526 0%, #414345 100%);
+  background-image: url("assets/f1GPTBg.png");
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-attachment: fixed;
+}
+
 main {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   min-height: 100vh;
-  background: linear-gradient(135deg, #232526 0%, #414345 100%);
   padding: 1rem 0;
-  background-image: url("assets/f1GPTBg.png");
-  background-size: cover; /* Ensures the background image covers the main area */
-  background-repeat: no-repeat;
-  background-position: center center;
 }
 
 .starter-text {
