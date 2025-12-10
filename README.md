@@ -2,7 +2,7 @@
 
 An intelligent chatbot specialized in Formula 1, powered by advanced AI and vector search technology. Built with Next.js, Supabase, and Together AI.
 
-![F1GPT](https://f1-gpt-tawny.vercel.app)
+
 
 ## ✨ Features
 
